@@ -37,7 +37,6 @@ Thumbs.db
 
 # Data and output files
 *.csv
-*.html
 data/
 output/
 results/
@@ -50,3 +49,6 @@ htmlcov/
 # Environment variables
 .env
 .env.local
+
+# Claude
+.claude/
