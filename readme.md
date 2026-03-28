@@ -2,6 +2,12 @@
 
 An ICT-based intraday scalping model for **NQ (Nasdaq Futures)**, backtested on 30-second bars derived from tick data.
 
+## Current Status
+
+The original **Aug 28 - Nov 21, 2025** in-sample slice made the higher R:R variant look strong. That did **not** hold up once the test was expanded to the larger **Jul 12, 2022 - Nov 21, 2025** merged tick dataset and bar construction was forced to respect correct intra-timestamp trade ordering.
+
+Current conclusion: **the model is not profitable on the larger sequencing-corrected dataset**.
+
 ## Strategy Overview
 
 The model uses a top-down, three-step approach based on Inner Circle Trader (ICT) concepts:
@@ -37,10 +43,11 @@ After the 5M confirmation, drop to the **30-second** chart and enter when price 
 
 ## Backtest Results
 
-Data period: **Aug 28 – Nov 21, 2025** (NQ tick data resampled to 30-second bars).
 Transaction cost: **0.25 pts** round trip.
 
-### Head-to-Head Comparison
+### In-Sample: Original Tick Data
+
+Data period: **Aug 28 - Nov 21, 2025** using `data/nq_ticks.parquet`.
 
 | Metric | Base Model | Higher R:R |
 |---|---|---|
@@ -56,29 +63,33 @@ Transaction cost: **0.25 pts** round trip.
 | **Largest Win** | 11.8 pts | 81.0 pts |
 | **Largest Loss** | -12.2 pts | -12.2 pts |
 
-### Monthly Breakdown — Higher R:R
+### Out-of-Sample: Sequencing-Corrected Merged Tick Data
 
-| Month | Trades | P&L | Avg R | Win% |
-|---|---|---|---|---|
-| 2025-08 | 21 | +240.0 pts | 0.96 | 47.6% |
-| 2025-09 | 186 | +1,139.5 pts | 0.47 | 35.5% |
-| 2025-10 | 227 | +463.0 pts | 0.23 | 26.0% |
-| 2025-11 | 184 | +1,477.2 pts | 0.70 | 33.7% |
+Data period: **Jul 12, 2022 - Nov 21, 2025** using `data/merged_nq_ticks.parquet`, truncated to the overlap with `data/nq_1m.parquet`.
 
-### Direction Breakdown
+The merged dataset preserves trade order within identical timestamps via `intra_ts_rank`, so 30-second bars are built from correctly sequenced trades rather than assuming same-timestamp rows are interchangeable.
 
-| | Base Long | Base Short | HRR Long | HRR Short |
-|---|---|---|---|---|
-| Trades | 384 | 415 | 303 | 315 |
-| Win Rate | 48.7% | 47.5% | 58.7% | 6.0% |
+| Metric | Base Model | Higher R:R |
+|---|---|---|
+| **Trades** | 11,391 | 7,138 |
+| **Win Rate** | 48.7% | 22.9% |
+| **Total P&L** | **-3,768.5 pts** | **-3,271.0 pts** |
+| **Profit Factor** | 0.81 | 0.95 |
+| **Expectancy** | -0.03R | -0.03R |
+| **Avg Winner** | 1.00R (2.84 pts) | 3.24R (36.41 pts) |
+| **Avg Loser** | -1.00R (-3.35 pts) | -1.00R (-11.42 pts) |
+| **Max Drawdown** | -3,822.5 pts | -3,936.8 pts |
 
-> **Note:** The short-side win rate for Higher R:R is low because the test period (Aug–Nov 2025) was a strong bull market. Short structural targets rarely hit in a persistent uptrend. Long winners (+6,236 pts) more than compensated.
+### What Changed
 
-### Key Findings
-
-1. **Higher R:R variant is strongly positive** — +0.47R expectancy, 1.68 profit factor, all four months profitable.
-2. **Base model is roughly break-even** — 48% win rate at 1:1 isn't sufficient to overcome transaction costs and small structural disadvantages.
-3. **R-multiple distribution** — Base model clusters at ±1R. Higher R:R shows a long right tail with winners at 2–5R+ compensating for the lower hit rate.
+1. **The positive 2025 result did not generalize.**
+   The higher R:R variant went from **+3,319.8 pts in-sample** to **-3,271.0 pts** on the larger out-of-sample run.
+2. **More data hurt both variants.**
+   The base model remained negative, and the higher R:R variant also dropped below breakeven despite still producing larger winners than losers on average.
+3. **Correct trade sequencing is now accounted for.**
+   The merged parquet stores `intra_ts_rank`, and the backtest uses the sanitized merged schema when building 30-second bars so that same-timestamp trades keep their intended order.
+4. **The model should be treated as unvalidated / currently unprofitable.**
+   The old README headline was too optimistic because it centered the short in-sample slice instead of the broader validation set.
 
 ---
 
@@ -87,20 +98,41 @@ Transaction cost: **0.25 pts** round trip.
 ```
 ├── backtest.py          # Main backtesting engine
 ├── strategy.md          # Detailed strategy specification
-├── report.html          # Interactive HTML backtest report (Plotly charts)
+├── report.html          # Legacy report from the older pandas backtest
+├── report_in_sample.html
+├── report_out_of_sample.html
 ├── test_backtest.py     # Unit tests for component functions
-├── trades_base.csv      # Trade log — Base Model
-├── trades_higher_rr.csv # Trade log — Higher R:R
+├── trades_base.csv      # Legacy trade log from the older pandas backtest
+├── trades_higher_rr.csv # Legacy trade log from the older pandas backtest
+├── trades_base_in_sample.csv
+├── trades_higher_rr_in_sample.csv
+├── trades_base_out_of_sample.csv
+├── trades_higher_rr_out_of_sample.csv
 ├── data/
-│   ├── nq_1m.parquet    # 1-minute OHLCV bars (Sep 2020 – Nov 2025)
-│   └── nq_ticks.parquet # Raw tick data (Aug – Nov 2025)
+│   ├── merged_nq_ticks.parquet # Sanitized merged ticks (Jul 2022 – Nov 2025)
+│   ├── merged_ticks_example.csv
+│   ├── merged_ticks_schema.txt
+│   ├── nq_1m.parquet          # 1-minute OHLCV bars (Sep 2020 – Nov 2025)
+│   └── nq_ticks.parquet       # Original raw tick data (Aug – Nov 2025)
 └── docs/
 ```
 
 ## Running the Backtest
 
 ```bash
-python backtest.py
+.venv/bin/python backtest.py
 ```
 
-This loads tick data from `data/nq_ticks.parquet`, resamples to 30-second bars for entry, and builds 5m/15m/1h bars from `data/nq_1m.parquet` for higher-timeframe analysis. Results are saved to `report.html` and CSV trade logs.
+This runs two passes:
+
+1. `data/nq_ticks.parquet` as the original in-sample test
+2. `data/merged_nq_ticks.parquet` as the larger out-of-sample validation set
+
+Both runs build 30-second entry bars, derive higher-timeframe context from `data/nq_1m.parquet`, and cap the tick data to the overlapping 1-minute range. Results are saved to:
+
+- `report_in_sample.html`
+- `report_out_of_sample.html`
+- `trades_base_in_sample.csv`
+- `trades_higher_rr_in_sample.csv`
+- `trades_base_out_of_sample.csv`
+- `trades_higher_rr_out_of_sample.csv`
